@@ -1,0 +1,19 @@
+{
+  "defaults": {
+    "key": "localhost-key.pem",
+    "cert": "localhost.pem",
+    "hostname": "localhost"
+  },
+  "admin": 3001,
+  "campaigns": 3002,
+  "support": 3003,
+  "api": {
+    "source": 9001,
+    "target": 9000
+  },
+  "ignore": {
+    "assets": 3005,
+    "developer": 3001,
+    "marketing": 3000
+  }
+}

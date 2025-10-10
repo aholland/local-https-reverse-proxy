@@ -47,8 +47,8 @@ This is a local SSL proxy server that creates HTTPS endpoints for HTTP services 
 
 2. **src/main.ts** - Core proxy server implementation
    - Uses `http-proxy-3` library (modern TypeScript rewrite of http-proxy)
-   - Logs all proxy requests/responses with timestamps and colored output (gray/green/blue/red)
-   - Error handling: Returns 502 Bad Gateway on ECONNREFUSED errors (src/main.ts:37-73)
+   - Uses `pino` for structured logging with configurable log levels
+   - Error handling: Returns 502 Bad Gateway on ECONNREFUSED errors with retry logic (src/main.ts:42-94)
    - Header modifications for HTTPS→HTTP conversion:
      - `origin` header: changes https: to http: (src/main.ts:69-72)
      - `referer` header: changes https: to http: (src/main.ts:73-76)
@@ -89,12 +89,19 @@ Configuration supports both single proxy and multi-proxy setups:
 - `source` defaults to `target + 1000` if not specified
 - Required fields: `key`, `cert`, `hostname`, `target`
 
-**Retry configuration** (src/main.ts:34-35):
+**Retry configuration** (src/main.ts:39-40):
 - `maxRetryMs` (default: 1000): Maximum time in milliseconds to retry failed connections
 - `retryInterval` (default: 50): Time in milliseconds between retry attempts
 - Retries only occur for ECONNREFUSED errors (target server not yet started)
 - With defaults: ~20 retry attempts over 1 second to catch servers during startup
 - Much faster than previous implementation which took ~10 seconds
+
+**Logging configuration** (src/main.ts:13-25):
+- Uses `pino` for structured, high-performance logging with `pino-pretty` for colored output
+- `logLevel` (default: 'info'): Controls verbosity - 'debug', 'info', 'warn', 'error', 'fatal'
+- Set in defaults to apply globally: `"defaults": { "logLevel": "debug" }`
+- Debug level shows all request/response logs; info level shows only startup/shutdown/errors
+- Fatal errors (uncaught exceptions, unhandled rejections) are logged before process exit
 
 ### How to use this proxy
 

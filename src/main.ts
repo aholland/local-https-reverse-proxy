@@ -2,7 +2,7 @@
 
 import * as fs from 'fs';
 import * as httpProxy from 'http-proxy-3';
-import { blue, bold, gray, green, red } from 'ansi-colors';
+import * as pino from 'pino';
 import { isProxy, parse } from './lib';
 
 const parsed = parse();
@@ -10,6 +10,19 @@ const parsed = parse();
 const config = isProxy(parsed) ? {proxy: parsed} : parsed;
 
 const defaults = config['defaults'];
+const logLevel = (defaults && defaults['logLevel']) || 'info';
+
+const logger = pino.pino({
+    level: logLevel,
+    transport: {
+        target: 'pino-pretty',
+        options: {
+            colorize: true,
+            translateTime: 'SYS:HH:MM:ss',
+            ignore: 'pid,hostname'
+        }
+    }
+});
 
 for (const name of Object.keys(config)) {
     if (name === 'defaults' || name === 'ignore') {
@@ -35,7 +48,7 @@ for (const name of Object.keys(config)) {
     const retryInterval: number = get('retryInterval', true, true) ?? 50;
 
     const handleProxyError = (e: any, req, res) => {
-        console.log(gray(`[${new Date().toISOString()}] Proxy ${bold(name)}: Error occurred - ${e.code}`));
+        logger.debug({ proxy: name, error: e.code }, 'Proxy error occurred');
 
         if (e.code === 'ECONNREFUSED') {
             // Track start time for retry window
@@ -49,7 +62,13 @@ for (const name of Object.keys(config)) {
             // Retry if still within the time window
             if (elapsed < maxRetryMs) {
                 req._retryCount++;
-                console.error(gray(`Proxy ${bold(name)}: Connection to target at http://${hostname}:${target} refused. Retry ${req._retryCount} in ${retryInterval}ms... (${elapsed}ms elapsed)`));
+                logger.debug({
+                    proxy: name,
+                    target: `http://${hostname}:${target}`,
+                    retry: req._retryCount,
+                    delay: retryInterval,
+                    elapsed
+                }, 'Connection refused, retrying');
 
                 // Increase max listeners to avoid warning during retries
                 if (req.setMaxListeners) {
@@ -63,9 +82,14 @@ for (const name of Object.keys(config)) {
             }
 
             // Max retry time exceeded
-            console.error(red(`Request failed to ${name}: ${bold(e.code)} - exceeded ${maxRetryMs}ms retry window after ${req._retryCount} attempts`));
+            logger.error({
+                proxy: name,
+                error: e.code,
+                retries: req._retryCount,
+                maxRetryMs
+            }, 'Request failed - retry window exceeded');
         } else {
-            console.error(red(`Request failed to ${name}: ${bold(e.code)} - ${e.message || 'Unknown error'}`));
+            logger.error({ proxy: name, error: e.code, message: e.message }, 'Request failed');
         }
 
         // Type guard to ensure res is a valid ServerResponse
@@ -73,7 +97,7 @@ for (const name of Object.keys(config)) {
             res.writeHead(502, { 'Content-Type': 'text/plain' });
             res.end(`Bad Gateway: Unable to connect to target server`);
         } else if (!res || typeof res.writeHead !== 'function') {
-            console.error(red(`Cannot send error response - response object is not a valid ServerResponse`));
+            logger.error({ proxy: name }, 'Cannot send error response - invalid response object');
         }
     };
 
@@ -92,7 +116,7 @@ for (const name of Object.keys(config)) {
         })
         .on('error', handleProxyError)
         .on('proxyReq', (proxyReq, req) => {
-            console.log(gray(`[${new Date().toISOString()}] Proxy ${bold(name)}: Forwarding request to ${req.method} ${req.url}`));
+            logger.debug({ proxy: name, method: req.method, url: req.url }, 'Forwarding request');
             const origin = proxyReq.getHeader('origin');
             if (origin) {
                 proxyReq.setHeader('origin', origin.toString().replace(/^https:/, 'http:'));
@@ -103,10 +127,12 @@ for (const name of Object.keys(config)) {
             }
         })
         .on('proxyRes', (proxyRes, req, res) => {
-            console.log(green(`[${new Date().toISOString()}] Proxy ${bold(name)}: Response received - ${proxyRes.statusCode} ${req.method} ${req.url}`));
-            res.getHeaderNames().forEach((name) => {
-                console.log(blue(`Proxy-res ${bold(name)}:  ${res.getHeader(name)}`));
-            });
+            logger.debug({
+                proxy: name,
+                status: proxyRes.statusCode,
+                method: req.method,
+                url: req.url
+            }, 'Response received');
             const loc = proxyRes.headers.location;
             if (loc) {
                 proxyRes.headers.location = loc.replace(/^http:/, 'https:');
@@ -118,26 +144,38 @@ for (const name of Object.keys(config)) {
         })
         .listen(source);
 
-    console.log(
-        green(
-            `Started ${isProxy(parsed) ? 'proxy' : bold(name)}: https://${hostname}:${source} → http://${hostname}:${target}`
-        )
-    );
+    logger.info({
+        proxy: name,
+        sourceUrl: `https://${hostname}:${source}`,
+        targetUrl: `http://${hostname}:${target}`
+    }, 'Proxy started');
+
     process.on('exit', (code) => {
         proxy.close();
-        console.log(`Closed proxy ${bold(name)}`);
+        logger.info({ proxy: name }, 'Proxy closed');
     });
 }
 
 process.on('SIGINT', () => {
-    console.log('Received SIGINT');
+    logger.info('Received SIGINT, shutting down');
     process.exit(0);
 });
 process.on('SIGTERM', () => {
-    console.log('Received SIGTERM');
+    logger.info('Received SIGTERM, shutting down');
     process.exit(0);
 });
 process.on('exit', (code) => {
-    const color = code === 0 ? blue : red;
-    console.log(color(`Exiting with code: ${code}`));
+    const level = code === 0 ? 'info' : 'error';
+    logger[level]({ exitCode: code }, 'Process exiting');
+});
+
+// Log uncaught errors instead of crashing silently
+process.on('uncaughtException', (error) => {
+    logger.fatal({ error: error.message, stack: error.stack }, 'Uncaught exception');
+    process.exit(1);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    logger.fatal({ reason, promise }, 'Unhandled promise rejection');
+    process.exit(1);
 });

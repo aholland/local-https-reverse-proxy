@@ -36,7 +36,8 @@ async function checkTargetAvailable(
     port: number,
     maxRetryMs: number,
     retryIntervalMs: number,
-    proxyName: string
+    proxyName: string,
+    isDevTooling: boolean = false
 ): Promise<boolean> {
     const startTime = Date.now();
     let retryCount = 0;
@@ -94,9 +95,10 @@ async function checkTargetAvailable(
                 return false;
             }
 
-            // Log first retry at info level to indicate retry process started
+            // Log first retry at info level (or debug for dev tooling)
             if (retryCount === 1) {
-                logger.info({
+                const level = isDevTooling ? 'debug' : 'info';
+                logger[level]({
                     proxy: proxyName,
                     target: `http://${hostname}:${port}`,
                     error: err.code || 'UNKNOWN',
@@ -207,84 +209,116 @@ for (const name of Object.keys(config)) {
             cert: fs.readFileSync(cert, 'utf8')
         },
         async (req: any, res: any) => {
-            // Add error handlers to prevent uncaught exceptions on socket errors
-            req.on('error', (err: any) => {
-                logger.warn({
+            try {
+                // Add error handlers to prevent uncaught exceptions on socket errors
+                req.on('error', (err: any) => {
+                    logger.warn({
+                        proxy: name,
+                        error: err.code,
+                        message: err.message,
+                        method: req.method,
+                        url: req.url
+                    }, 'Request socket error (connection interrupted)');
+                });
+
+                res.on('error', (err: any) => {
+                    logger.warn({
+                        proxy: name,
+                        error: err.code,
+                        message: err.message
+                    }, 'Response socket error (connection interrupted)');
+                });
+
+                // Check if target is available before proxying
+                const targetAvailable = await checkTargetAvailable(
+                    hostname,
+                    target,
+                    maxRetryMs,
+                    retryIntervalMs,
+                    name
+                );
+
+                if (!targetAvailable) {
+                    // Target is not available after retries
+                    logger.warn({
+                        proxy: name,
+                        method: req.method,
+                        url: req.url,
+                        target: `http://${hostname}:${target}`
+                    }, 'Returning 502 - target server unavailable');
+
+                    res.writeHead(502, { 'Content-Type': 'text/plain' });
+                    res.end('Bad Gateway: Target server not available');
+                    return;
+                }
+
+                // Target is available, proxy the request (only called ONCE)
+                proxy.web(req, res);
+            } catch (err: any) {
+                logger.error({
                     proxy: name,
-                    error: err.code,
-                    message: err.message,
+                    error: err.message,
+                    stack: err.stack,
                     method: req.method,
                     url: req.url
-                }, 'Request socket error (connection interrupted)');
-            });
+                }, 'Unexpected error handling HTTP request');
 
-            res.on('error', (err: any) => {
-                logger.warn({
-                    proxy: name,
-                    error: err.code,
-                    message: err.message
-                }, 'Response socket error (connection interrupted)');
-            });
-
-            // Check if target is available before proxying
-            const targetAvailable = await checkTargetAvailable(
-                hostname,
-                target,
-                maxRetryMs,
-                retryIntervalMs,
-                name
-            );
-
-            if (!targetAvailable) {
-                // Target is not available after retries
-                logger.warn({
-                    proxy: name,
-                    method: req.method,
-                    url: req.url,
-                    target: `http://${hostname}:${target}`
-                }, 'Returning 502 - target server unavailable');
-
-                res.writeHead(502, { 'Content-Type': 'text/plain' });
-                res.end('Bad Gateway: Target server not available');
-                return;
+                if (res && !res.headersSent) {
+                    res.writeHead(500, { 'Content-Type': 'text/plain' });
+                    res.end('Internal Server Error');
+                }
             }
-
-            // Target is available, proxy the request (only called ONCE)
-            proxy.web(req, res);
         }
     );
 
     // Handle WebSocket upgrade requests
     server.on('upgrade', async (req: any, socket: any, head: any) => {
-        // Add error handler to prevent uncaught exceptions on socket errors
-        socket.on('error', (err: any) => {
-            logger.warn({
+        try {
+            // Check if this is Vite dev tooling (to reduce log noise)
+            const wsProtocol = req.headers['sec-websocket-protocol'] || '';
+            const isDevTooling = wsProtocol.includes('vite-ping');
+
+            // Add error handler to prevent uncaught exceptions on socket errors
+            socket.on('error', (err: any) => {
+                const level = isDevTooling ? 'debug' : 'warn';
+                logger[level]({
+                    proxy: name,
+                    error: err.code,
+                    message: err.message,
+                    url: req.url
+                }, 'WebSocket socket error (connection interrupted)');
+            });
+
+            const targetAvailable = await checkTargetAvailable(
+                hostname,
+                target,
+                maxRetryMs,
+                retryIntervalMs,
+                name,
+                isDevTooling
+            );
+
+            if (!targetAvailable) {
+                const level = isDevTooling ? 'debug' : 'warn';
+                logger[level]({
+                    proxy: name,
+                    url: req.url,
+                    target: `http://${hostname}:${target}`
+                }, 'Returning 502 - target server unavailable for WebSocket upgrade');
+                socket.end('HTTP/1.1 502 Bad Gateway\r\n\r\n');
+                return;
+            }
+
+            proxy.ws(req, socket, head);
+        } catch (err: any) {
+            logger.error({
                 proxy: name,
-                error: err.code,
-                message: err.message,
+                error: err.message,
+                stack: err.stack,
                 url: req.url
-            }, 'WebSocket socket error (connection interrupted)');
-        });
-
-        const targetAvailable = await checkTargetAvailable(
-            hostname,
-            target,
-            maxRetryMs,
-            retryIntervalMs,
-            name
-        );
-
-        if (!targetAvailable) {
-            logger.warn({
-                proxy: name,
-                url: req.url,
-                target: `http://${hostname}:${target}`
-            }, 'Returning 502 - target server unavailable for WebSocket upgrade');
-            socket.end('HTTP/1.1 502 Bad Gateway\r\n\r\n');
-            return;
+            }, 'Unexpected error handling WebSocket upgrade');
+            socket.end('HTTP/1.1 500 Internal Server Error\r\n\r\n');
         }
-
-        proxy.ws(req, socket, head);
     });
 
     server.listen(source);

@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 
 import * as fs from 'fs';
+import * as https from 'https';
+import * as net from 'net';
 import * as httpProxy from 'http-proxy-3';
 import * as pino from 'pino';
 import { isProxy, parse } from './lib';
@@ -23,6 +25,91 @@ const logger = pino.pino({
         }
     }
 });
+
+/**
+ * Check if target port is accepting connections by attempting a TCP connection.
+ * Retries within the specified time window.
+ * @returns Promise<boolean> - true if target is available, false otherwise
+ */
+async function checkTargetAvailable(
+    hostname: string,
+    port: number,
+    maxRetryMs: number,
+    retryInterval: number,
+    proxyName: string
+): Promise<boolean> {
+    const startTime = Date.now();
+    let retryCount = 0;
+
+    while (Date.now() - startTime < maxRetryMs) {
+        try {
+            await new Promise<void>((resolve, reject) => {
+                const socket = new net.Socket();
+                const timeout = 100; // Quick connection timeout
+
+                socket.setTimeout(timeout);
+
+                socket.once('connect', () => {
+                    socket.destroy();
+                    resolve();
+                });
+
+                socket.once('error', (err) => {
+                    socket.destroy();
+                    reject(err);
+                });
+
+                socket.once('timeout', () => {
+                    socket.destroy();
+                    reject(new Error('Connection timeout'));
+                });
+
+                socket.connect(port, hostname);
+            });
+
+            // Success! Target is available
+            if (retryCount > 0) {
+                logger.info({
+                    proxy: proxyName,
+                    target: `http://${hostname}:${port}`,
+                    retries: retryCount,
+                    elapsed: Date.now() - startTime
+                }, 'Target server became available');
+            }
+            return true;
+
+        } catch (err: any) {
+            retryCount++;
+            const elapsed = Date.now() - startTime;
+
+            // Check if we still have time to retry
+            if (elapsed >= maxRetryMs) {
+                logger.error({
+                    proxy: proxyName,
+                    target: `http://${hostname}:${port}`,
+                    error: err.code || 'UNKNOWN',
+                    retries: retryCount,
+                    elapsed
+                }, 'Target server not available - retry window exceeded');
+                return false;
+            }
+
+            logger.debug({
+                proxy: proxyName,
+                target: `http://${hostname}:${port}`,
+                retry: retryCount,
+                delay: retryInterval,
+                elapsed,
+                error: err.code || 'UNKNOWN'
+            }, 'Target not ready, retrying...');
+
+            // Wait before next retry
+            await new Promise(resolve => setTimeout(resolve, retryInterval));
+        }
+    }
+
+    return false;
+}
 
 for (const name of Object.keys(config)) {
     if (name === 'defaults' || name === 'ignore') {
@@ -47,102 +134,142 @@ for (const name of Object.keys(config)) {
     const maxRetryMs: number = get('maxRetryMs', true, true) ?? 1000;
     const retryInterval: number = get('retryInterval', true, true) ?? 50;
 
-    const handleProxyError = (e: any, req, res) => {
-        logger.debug({ proxy: name, error: e.code }, 'Proxy error occurred');
+    // Create proxy instance (not a server)
+    const proxy = httpProxy.createProxyServer({
+        xfwd: true,
+        ws: true,
+        target: {
+            host: hostname,
+            port: target
+        }
+    });
 
-        if (e.code === 'ECONNREFUSED') {
-            // Track start time for retry window
-            if (!req._retryStartTime) {
-                req._retryStartTime = Date.now();
-                req._retryCount = 0;
-            }
+    // Handle proxy errors (for errors other than connection refused)
+    proxy.on('error', (e: any, req: any, res: any) => {
+        logger.error({
+            proxy: name,
+            error: e.code,
+            message: e.message
+        }, 'Proxy error occurred');
 
-            const elapsed = Date.now() - req._retryStartTime;
+        // Send error response if possible
+        if (res && typeof res.writeHead === 'function' && !res.headersSent) {
+            res.writeHead(502, { 'Content-Type': 'text/plain' });
+            res.end('Bad Gateway: Proxy error');
+        }
+    });
 
-            // Retry if still within the time window
-            if (elapsed < maxRetryMs) {
-                req._retryCount++;
+    // Modify headers before forwarding
+    proxy.on('proxyReq', (proxyReq, req) => {
+        logger.debug({ proxy: name, method: req.method, url: req.url }, 'Forwarding request');
+        const origin = proxyReq.getHeader('origin');
+        if (origin) {
+            proxyReq.setHeader('origin', origin.toString().replace(/^https:/, 'http:'));
+        }
+        const ref = proxyReq.getHeader('referer');
+        if (ref) {
+            proxyReq.setHeader('referer', ref.toString().replace(/^https:/, 'http:'));
+        }
+    });
+
+    // Modify response headers
+    proxy.on('proxyRes', (proxyRes, req) => {
+        logger.debug({
+            proxy: name,
+            status: proxyRes.statusCode,
+            method: req.method,
+            url: req.url
+        }, 'Response received');
+        const loc = proxyRes.headers.location;
+        if (loc) {
+            proxyRes.headers.location = loc.replace(/^http:/, 'https:');
+        }
+        const acao = proxyRes.headers["access-control-allow-origin"];
+        if (acao) {
+            proxyRes.headers["access-control-allow-origin"] = acao.replace(/^http:/, 'https:');
+        }
+    });
+
+    // Create HTTPS server that checks target availability before proxying
+    const server = https.createServer(
+        {
+            key: fs.readFileSync(key, 'utf8'),
+            cert: fs.readFileSync(cert, 'utf8')
+        },
+        async (req: any, res: any) => {
+            // Add error handlers to prevent uncaught exceptions on socket errors
+            req.on('error', (err: any) => {
                 logger.debug({
                     proxy: name,
-                    target: `http://${hostname}:${target}`,
-                    retry: req._retryCount,
-                    delay: retryInterval,
-                    elapsed
-                }, 'Connection refused, retrying');
+                    error: err.code,
+                    message: err.message
+                }, 'Request socket error');
+            });
 
-                // Increase max listeners to avoid warning during retries
-                if (req.setMaxListeners) {
-                    req.setMaxListeners(25);
-                }
+            res.on('error', (err: any) => {
+                logger.debug({
+                    proxy: name,
+                    error: err.code,
+                    message: err.message
+                }, 'Response socket error');
+            });
 
-                setTimeout(() => {
-                    proxy.web(req, res, {}, handleProxyError);
-                }, retryInterval);
+            // Check if target is available before proxying
+            const targetAvailable = await checkTargetAvailable(
+                hostname,
+                target,
+                maxRetryMs,
+                retryInterval,
+                name
+            );
+
+            if (!targetAvailable) {
+                // Target is not available after retries
+                logger.warn({
+                    proxy: name,
+                    method: req.method,
+                    url: req.url,
+                    target: `http://${hostname}:${target}`
+                }, 'Returning 502 - target server unavailable');
+
+                res.writeHead(502, { 'Content-Type': 'text/plain' });
+                res.end('Bad Gateway: Target server not available');
                 return;
             }
 
-            // Max retry time exceeded
-            logger.error({
-                proxy: name,
-                error: e.code,
-                retries: req._retryCount,
-                maxRetryMs
-            }, 'Request failed - retry window exceeded');
-        } else {
-            logger.error({ proxy: name, error: e.code, message: e.message }, 'Request failed');
+            // Target is available, proxy the request (only called ONCE)
+            proxy.web(req, res);
         }
+    );
 
-        // Type guard to ensure res is a valid ServerResponse
-        if (res && typeof res.writeHead === 'function' && !res.headersSent) {
-            res.writeHead(502, { 'Content-Type': 'text/plain' });
-            res.end(`Bad Gateway: Unable to connect to target server`);
-        } else if (!res || typeof res.writeHead !== 'function') {
-            logger.error({ proxy: name }, 'Cannot send error response - invalid response object');
-        }
-    };
-
-    const proxy = httpProxy
-        .createServer({
-            xfwd: true,
-            ws: true,
-            target: {
-                host: hostname,
-                port: target
-            },
-            ssl: {
-                key: fs.readFileSync(key, 'utf8'),
-                cert: fs.readFileSync(cert, 'utf8')
-            }
-        })
-        .on('error', handleProxyError)
-        .on('proxyReq', (proxyReq, req) => {
-            logger.debug({ proxy: name, method: req.method, url: req.url }, 'Forwarding request');
-            const origin = proxyReq.getHeader('origin');
-            if (origin) {
-                proxyReq.setHeader('origin', origin.toString().replace(/^https:/, 'http:'));
-            }
-            const ref = proxyReq.getHeader('referer');
-            if (ref) {
-                proxyReq.setHeader('referer', ref.toString().replace(/^https:/, 'http:'));
-            }
-        })
-        .on('proxyRes', (proxyRes, req, res) => {
+    // Handle WebSocket upgrade requests
+    server.on('upgrade', async (req: any, socket: any, head: any) => {
+        // Add error handler to prevent uncaught exceptions on socket errors
+        socket.on('error', (err: any) => {
             logger.debug({
                 proxy: name,
-                status: proxyRes.statusCode,
-                method: req.method,
-                url: req.url
-            }, 'Response received');
-            const loc = proxyRes.headers.location;
-            if (loc) {
-                proxyRes.headers.location = loc.replace(/^http:/, 'https:');
-            }
-            const acao = proxyRes.headers["access-control-allow-origin"];
-            if (acao) {
-                proxyRes.headers["access-control-allow-origin"] = acao.replace(/^http:/, 'https:');
-            }
-        })
-        .listen(source);
+                error: err.code,
+                message: err.message
+            }, 'WebSocket socket error');
+        });
+
+        const targetAvailable = await checkTargetAvailable(
+            hostname,
+            target,
+            maxRetryMs,
+            retryInterval,
+            name
+        );
+
+        if (!targetAvailable) {
+            socket.end('HTTP/1.1 502 Bad Gateway\r\n\r\n');
+            return;
+        }
+
+        proxy.ws(req, socket, head);
+    });
+
+    server.listen(source);
 
     logger.info({
         proxy: name,
@@ -150,7 +277,8 @@ for (const name of Object.keys(config)) {
         targetUrl: `http://${hostname}:${target}`
     }, 'Proxy started');
 
-    process.on('exit', (code) => {
+    process.on('exit', () => {
+        server.close();
         proxy.close();
         logger.info({ proxy: name }, 'Proxy closed');
     });

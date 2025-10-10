@@ -146,6 +146,31 @@ for (const name of Object.keys(config)) {
     const maxRetryMs: number = get('maxRetryMs', true, true) ?? 1000;
     const retryIntervalMs: number = get('retryIntervalMs', true, true) ?? 50;
 
+    // Shared health check promise - concurrent requests await the same check
+    let activeHealthCheck: Promise<boolean> | null = null;
+
+    /**
+     * Get or create a shared health check promise.
+     * Concurrent requests will await the same health check instead of each doing their own.
+     */
+    const getOrCreateHealthCheck = (isDevTooling: boolean = false): Promise<boolean> => {
+        if (!activeHealthCheck) {
+            // No active check - start a new one
+            activeHealthCheck = checkTargetAvailable(
+                hostname,
+                target,
+                maxRetryMs,
+                retryIntervalMs,
+                name,
+                isDevTooling
+            ).finally(() => {
+                // Clear the shared promise when done so next request creates a new one
+                activeHealthCheck = null;
+            });
+        }
+        return activeHealthCheck;
+    };
+
     // Create proxy instance (not a server)
     const proxy = httpProxy.createProxyServer({
         xfwd: true,
@@ -230,13 +255,8 @@ for (const name of Object.keys(config)) {
                 });
 
                 // Check if target is available before proxying
-                const targetAvailable = await checkTargetAvailable(
-                    hostname,
-                    target,
-                    maxRetryMs,
-                    retryIntervalMs,
-                    name
-                );
+                // Use shared health check - concurrent requests await same check
+                const targetAvailable = await getOrCreateHealthCheck();
 
                 if (!targetAvailable) {
                     // Target is not available after retries
@@ -289,14 +309,8 @@ for (const name of Object.keys(config)) {
                 }, 'WebSocket socket error (connection interrupted)');
             });
 
-            const targetAvailable = await checkTargetAvailable(
-                hostname,
-                target,
-                maxRetryMs,
-                retryIntervalMs,
-                name,
-                isDevTooling
-            );
+            // Use shared health check - concurrent requests await same check
+            const targetAvailable = await getOrCreateHealthCheck(isDevTooling);
 
             if (!targetAvailable) {
                 const level = isDevTooling ? 'debug' : 'warn';

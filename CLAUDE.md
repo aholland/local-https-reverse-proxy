@@ -79,11 +79,18 @@ Configuration supports both single proxy and multi-proxy setups:
 }
 ```
 
-**Defaults support** (src/main.ts:12-33):
+**Defaults support** (src/main.ts:12-35):
 - A `defaults` key can be used to provide shared configuration
 - Individual proxies inherit from defaults but can override specific values
 - `source` defaults to `target + 1000` if not specified
 - Required fields: `key`, `cert`, `hostname`, `target`
+
+**Retry configuration** (src/main.ts:34-35):
+- `maxRetryMs` (default: 1000): Maximum time in milliseconds to retry failed connections
+- `retryInterval` (default: 50): Time in milliseconds between retry attempts
+- Retries only occur for ECONNREFUSED errors (target server not yet started)
+- With defaults: ~20 retry attempts over 1 second to catch servers during startup
+- Much faster than previous implementation which took ~10 seconds
 
 ### How to use this proxy
 

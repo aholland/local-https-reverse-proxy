@@ -32,6 +32,8 @@ type Proxy = {
   target: number;
   cert: string;
   key: string;
+  maxRetryMs?: number;
+  retryInterval?: number;
 };
 
 type Config = { config: Record<string, Proxy> };

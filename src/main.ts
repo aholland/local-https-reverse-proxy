@@ -31,16 +31,43 @@ for (const name of Object.keys(config)) {
     const hostname: string = get('hostname', true, false);
     const target: number = (typeof proxyConfig != 'object') ? proxyConfig : get('target', false, false);
     const source: number = get('source', false, true) ?? target + 1000;
+    const maxRetryMs: number = get('maxRetryMs', true, true) ?? 1000;
+    const retryInterval: number = get('retryInterval', true, true) ?? 50;
 
     const handleProxyError = (e: any, req, res) => {
         console.log(gray(`[${new Date().toISOString()}] Proxy ${bold(name)}: Error occurred - ${e.code}`));
-        
+
         if (e.code === 'ECONNREFUSED') {
-            console.error(gray(`Proxy ${bold(name)}: Connection to target at http://${hostname}:${target} refused.`));
+            // Track start time for retry window
+            if (!req._retryStartTime) {
+                req._retryStartTime = Date.now();
+                req._retryCount = 0;
+            }
+
+            const elapsed = Date.now() - req._retryStartTime;
+
+            // Retry if still within the time window
+            if (elapsed < maxRetryMs) {
+                req._retryCount++;
+                console.error(gray(`Proxy ${bold(name)}: Connection to target at http://${hostname}:${target} refused. Retry ${req._retryCount} in ${retryInterval}ms... (${elapsed}ms elapsed)`));
+
+                // Increase max listeners to avoid warning during retries
+                if (req.setMaxListeners) {
+                    req.setMaxListeners(25);
+                }
+
+                setTimeout(() => {
+                    proxy.web(req, res, {}, handleProxyError);
+                }, retryInterval);
+                return;
+            }
+
+            // Max retry time exceeded
+            console.error(red(`Request failed to ${name}: ${bold(e.code)} - exceeded ${maxRetryMs}ms retry window after ${req._retryCount} attempts`));
+        } else {
+            console.error(red(`Request failed to ${name}: ${bold(e.code)} - ${e.message || 'Unknown error'}`));
         }
-        
-        console.error(red(`Request failed to ${name}: ${bold(e.code)} - ${e.message || 'Unknown error'}`));
-        
+
         // Type guard to ensure res is a valid ServerResponse
         if (res && typeof res.writeHead === 'function' && !res.headersSent) {
             res.writeHead(502, { 'Content-Type': 'text/plain' });

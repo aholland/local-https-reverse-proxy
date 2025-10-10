@@ -4,16 +4,12 @@
     "cert": "localhost.pem",
     "hostname": "localhost"
   },
-  "admin": 3001,
-  "campaigns": 3002,
-  "support": 3003,
-  "api": {
-    "source": 9001,
-    "target": 9000
+  "mvp-dev": {
+    "source": 5174,
+    "target": 5173
   },
-  "ignore": {
-    "assets": 3005,
-    "developer": 3001,
-    "marketing": 3000
+  "mvp-preview": {
+    "source": 4174,
+    "target": 4173
   }
 }

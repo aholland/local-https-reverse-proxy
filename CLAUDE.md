@@ -4,7 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What is local-ssl-proxy?
 
-This is a local fork of the [local-ssl-proxy npm package](https://www.npmjs.com/package/local-ssl-proxy), adapted and maintained locally for personal development use. It creates HTTPS endpoints for local HTTP services and acts as a reverse proxy that:
+This is a local fork of the [local-ssl-proxy npm package](https://www.npmjs.com/package/local-ssl-proxy), adapted and maintained locally for personal development use.
+
+**Note**: Uses `http-proxy-3` instead of the original `http-proxy` library. http-proxy-3 is a modern TypeScript rewrite that fixes memory leaks, updates deprecated dependencies, and provides better type safety.
+
+It creates HTTPS endpoints for local HTTP services and acts as a reverse proxy that:
 - Accepts HTTPS connections on a specified port (source)
 - Forwards requests to an HTTP service on another port (target)
 - Handles SSL/TLS termination using provided certificates
@@ -42,9 +46,9 @@ This is a local SSL proxy server that creates HTTPS endpoints for HTTP services 
    - Supports single proxy or multi-proxy configurations
 
 2. **src/main.ts** - Core proxy server implementation
-   - Uses `http-proxy` library for proxying
+   - Uses `http-proxy-3` library (modern TypeScript rewrite of http-proxy)
    - Logs all proxy requests/responses with timestamps and colored output (gray/green/blue/red)
-   - Error handling: Returns 502 Bad Gateway on ECONNREFUSED errors (src/main.ts:35-51)
+   - Error handling: Returns 502 Bad Gateway on ECONNREFUSED errors (src/main.ts:37-73)
    - Header modifications for HTTPS→HTTP conversion:
      - `origin` header: changes https: to http: (src/main.ts:69-72)
      - `referer` header: changes https: to http: (src/main.ts:73-76)

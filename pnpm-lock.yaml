@@ -14,16 +14,13 @@ importers:
       commander:
         specifier: 14.0.1
         version: 14.0.1
-      http-proxy:
-        specifier: 1.18.1
-        version: 1.18.1
+      http-proxy-3:
+        specifier: 1.22.0
+        version: 1.22.0
       ts-node:
         specifier: 10.9.2
         version: 10.9.2(@types/node@24.7.1)(typescript@5.9.3)
     devDependencies:
-      '@types/http-proxy':
-        specifier: 1.17.16
-        version: 1.17.16
       '@types/node':
         specifier: 24.7.1
         version: 24.7.1
@@ -292,9 +289,6 @@ packages:
   '@types/estree@1.0.5':
     resolution: {integrity: sha512-/kYRxGDLWzHOB7q+wtSUQlFrtcdUccpfy+X+9iMBpHK8QLLhx2wIPYuS5DYtR9Wa/YlZAbIovy7qVdB1Aq6Lyw==}
 
-  '@types/http-proxy@1.17.16':
-    resolution: {integrity: sha512-sdWoUajOB1cd0A8cRRQ1cfyWNbmFKLAqBB89Y8x5iYyG/mkJHc0YUH8pdWBy2omi9qtCpiIgGjuwO0dQST2l5w==}
-
   '@types/node@24.7.1':
     resolution: {integrity: sha512-CmyhGZanP88uuC5GpWU9q+fI61j2SkhO3UGMUdfYRE6Bcy0ccyzn1Rqj9YAB/ZY4kOXmNf0ocah5GtphmLMP6Q==}
 
@@ -394,9 +388,6 @@ packages:
   estree-walker@3.0.3:
     resolution: {integrity: sha512-7RUKfXgSMMkzt6ZuXmqapOurLGPPfgj6l9uRZ7lRGolvk0y2yocc35LdcxKC5PQZdn2DMqioAQ2NoWcrTKmm6g==}
 
-  eventemitter3@4.0.7:
-    resolution: {integrity: sha512-8guHBZCwKnFhYdHr2ysuRWErTwhoN2X8XELRlrRwpmfeY2jjuUN4taQMsULKUVo1K4DvZl+0pgfyoysHxvmvEw==}
-
   expect-type@1.2.1:
     resolution: {integrity: sha512-/kP8CAwxzLVEeFrMm4kMmy4CCDlpipyA7MYLVrdJIkV0fYF0UaigQHRsxHiuY/GEea+bh4KSv3TIlgr+2UL6bw==}
     engines: {node: '>=12.0.0'}
@@ -409,8 +400,8 @@ packages:
       picomatch:
         optional: true
 
-  follow-redirects@1.15.6:
-    resolution: {integrity: sha512-wWN62YITEaOpSK584EZXJafH1AGpO8RVgElfkuXbTOrPX4fIfOyEpW/CsiNd8JdYrAoOvafRTOEnvsO++qCqFA==}
+  follow-redirects@1.15.11:
+    resolution: {integrity: sha512-deG2P0JfjrTxl50XGCDyfI97ZGVCxIpfKYmfyrQ54n5FO/0gfIES8C/Psl6kWVDolizcaaxZJnTS0QSMxvnsBQ==}
     engines: {node: '>=4.0'}
     peerDependencies:
       debug: '*'
@@ -423,9 +414,9 @@ packages:
     engines: {node: ^8.16.0 || ^10.6.0 || >=11.0.0}
     os: [darwin]
 
-  http-proxy@1.18.1:
-    resolution: {integrity: sha512-7mz/721AbnJwIVbnaSv1Cz3Am0ZLT/UBwkC92VlxhXv/k/BBQfM2fXElQNC27BVGr0uwUpplYPQM9LnaBMR5NQ==}
-    engines: {node: '>=8.0.0'}
+  http-proxy-3@1.22.0:
+    resolution: {integrity: sha512-qyYYKjmPW7kDiRBGzydmD5f5ckuniL9fY45EWP05YVDoR/02JjrVMGqdrO5O+OURU7imhF3WyiKwp++4A3KEbw==}
+    engines: {node: '>=18'}
 
   js-tokens@9.0.1:
     resolution: {integrity: sha512-mxa9E9ITFOt0ban3j6L5MpjwegGz6lBQmM1IJkWeBZGcMxto50+eWdjC/52xDbS2vy0k7vIMK0Fe2wfL9OQSpQ==}
@@ -464,9 +455,6 @@ packages:
   postcss@8.4.38:
     resolution: {integrity: sha512-Wglpdk03BSfXkHoQa3b/oulrotAkwrlLDRSOb9D0bN86FdRyE9lppSp33aHNPgBa0JKCoB+drFLZkQoRRYae5A==}
     engines: {node: ^10 || ^12 || >=14}
-
-  requires-port@1.0.0:
-    resolution: {integrity: sha512-KigOCHcocU3XODJxsu8i/j8T9tzT4adHiecwORRQ0ZZFcp7ahwXuRU1m+yuO90C5ZUyGeGfocHDI14M3L3yDAQ==}
 
   rollup@4.16.1:
     resolution: {integrity: sha512-5CaD3MPDlPKfhqzRvWXK96G6ELJfPZNb3LHiZxTHgDdC6jvwfGz2E8nY+9g1ONk4ttHsK1WaFP19Js4PSr1E3g==}
@@ -756,10 +744,6 @@ snapshots:
 
   '@types/estree@1.0.5': {}
 
-  '@types/http-proxy@1.17.16':
-    dependencies:
-      '@types/node': 24.7.1
-
   '@types/node@24.7.1':
     dependencies:
       undici-types: 7.14.0
@@ -872,26 +856,25 @@ snapshots:
     dependencies:
       '@types/estree': 1.0.5
 
-  eventemitter3@4.0.7: {}
-
   expect-type@1.2.1: {}
 
   fdir@6.4.6(picomatch@4.0.2):
     optionalDependencies:
       picomatch: 4.0.2
 
-  follow-redirects@1.15.6: {}
+  follow-redirects@1.15.11(debug@4.4.1):
+    optionalDependencies:
+      debug: 4.4.1
 
   fsevents@2.3.3:
     optional: true
 
-  http-proxy@1.18.1:
+  http-proxy-3@1.22.0:
     dependencies:
-      eventemitter3: 4.0.7
-      follow-redirects: 1.15.6
-      requires-port: 1.0.0
+      debug: 4.4.1
+      follow-redirects: 1.15.11(debug@4.4.1)
     transitivePeerDependencies:
-      - debug
+      - supports-color
 
   js-tokens@9.0.1: {}
 
@@ -920,8 +903,6 @@ snapshots:
       nanoid: 3.3.7
       picocolors: 1.0.0
       source-map-js: 1.2.0
-
-  requires-port@1.0.0: {}
 
   rollup@4.16.1:
     dependencies:

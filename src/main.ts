@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import * as fs from 'fs';
-import * as httpProxy from 'http-proxy';
+import * as httpProxy from 'http-proxy-3';
 import { blue, bold, gray, green, red } from 'ansi-colors';
 import { isProxy, parse } from './lib';
 

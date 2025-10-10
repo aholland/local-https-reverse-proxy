@@ -8,6 +8,9 @@
     "url": "http://github.com/cameronhunter/local-ssl-proxy.git"
   },
   "license": "MIT",
+  "engines": {
+    "node": "24.x"
+  },
   "bin": "build/main.js",
   "preferGlobal": true,
   "files": [
@@ -16,24 +19,24 @@
   ],
   "scripts": {
     "start": "ts-node ./src/main.ts --config config.json",
-    "prebuild": "yarn clean",
+    "prebuild": "pnpm clean",
     "build": "tsc && chmod +x ./build/main.js",
     "clean": "tsc --build --clean",
     "test": "vitest run",
-    "prepublish": "yarn test && yarn build",
+    "prepublish": "pnpm test && pnpm build",
     "renew-certs": "cd resources && mkcert localhost"
   },
   "dependencies": {
     "ansi-colors": "4.1.3",
-    "commander": "12.0.0",
-    "http-proxy": "^1.18.1",
+    "commander": "14.0.1",
+    "http-proxy": "1.18.1",
     "ts-node": "10.9.2"
   },
   "devDependencies": {
-    "@types/http-proxy": "1.17.14",
-    "@types/node": "20.12.7",
-    "typescript": "5.4.5",
-    "vitest": "1.5.0"
+    "@types/http-proxy": "1.17.16",
+    "@types/node": "24.7.1",
+    "typescript": "5.9.3",
+    "vitest": "3.2.4"
   },
-  "packageManager": "pnpm@9.0.5"
+  "packageManager": "pnpm@10.18.1"
 }

@@ -32,33 +32,21 @@ for (const name of Object.keys(config)) {
     const target: number = (typeof proxyConfig != 'object') ? proxyConfig : get('target', false, false);
     const source: number = get('source', false, true) ?? target + 1000;
 
-    const maxRetries = 10;
-    const loopingListener = (e: any, req, res) => {
+    const handleProxyError = (e: any, req, res) => {
         console.log(gray(`[${new Date().toISOString()}] Proxy ${bold(name)}: Error occurred - ${e.code}`));
         
-        // Track retry count per request
-        if (!req._retryCount) {
-            req._retryCount = 0;
+        if (e.code === 'ECONNREFUSED') {
+            console.error(gray(`Proxy ${bold(name)}: Connection to target at http://${hostname}:${target} refused.`));
         }
         
-        if (e.code === 'ECONNREFUSED' && req._retryCount < maxRetries) {
-            req._retryCount++;
-            // Faster initial retries: 100ms, 200ms, 400ms, 800ms, then 1s intervals
-            const delay = req._retryCount <= 4 ? Math.pow(2, req._retryCount - 1) * 100 : 1000;
-            console.error(gray(`Proxy ${bold(name)}: Connection to target at http://${hostname}:${target} refused. Retry ${req._retryCount}/${maxRetries} in ${delay}ms...`));
-            setTimeout(() => {
-                // Increase max listeners to avoid warning during retries
-                if (req.setMaxListeners) {
-                    req.setMaxListeners(15);
-                }
-                proxy.web(req, res, {}, loopingListener);
-            }, delay);
-        } else {
-            console.error(red(`Request failed to ${name}: ${bold(e.code)} - ${e.message || 'Unknown error'}`));
-            if (res && !res.headersSent) {
-                res.writeHead(502, { 'Content-Type': 'text/plain' });
-                res.end(`Bad Gateway: Unable to connect to target server after ${req._retryCount || 0} retries`);
-            }
+        console.error(red(`Request failed to ${name}: ${bold(e.code)} - ${e.message || 'Unknown error'}`));
+        
+        // Type guard to ensure res is a valid ServerResponse
+        if (res && typeof res.writeHead === 'function' && !res.headersSent) {
+            res.writeHead(502, { 'Content-Type': 'text/plain' });
+            res.end(`Bad Gateway: Unable to connect to target server`);
+        } else if (!res || typeof res.writeHead !== 'function') {
+            console.error(red(`Cannot send error response - response object is not a valid ServerResponse`));
         }
     };
 
@@ -75,7 +63,7 @@ for (const name of Object.keys(config)) {
                 cert: fs.readFileSync(cert, 'utf8')
             }
         })
-        .on('error', loopingListener)
+        .on('error', handleProxyError)
         .on('proxyReq', (proxyReq, req) => {
             console.log(gray(`[${new Date().toISOString()}] Proxy ${bold(name)}: Forwarding request to ${req.method} ${req.url}`));
             const origin = proxyReq.getHeader('origin');

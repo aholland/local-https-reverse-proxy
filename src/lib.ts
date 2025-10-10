@@ -33,7 +33,7 @@ type Proxy = {
   cert: string;
   key: string;
   maxRetryMs?: number;
-  retryInterval?: number;
+  retryIntervalMs?: number;
 };
 
 type Config = { config: Record<string, Proxy> };

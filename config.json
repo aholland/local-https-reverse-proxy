@@ -2,7 +2,10 @@
   "defaults": {
     "key": "localhost-key.pem",
     "cert": "localhost.pem",
-    "hostname": "localhost"
+    "hostname": "localhost",
+    "logLevel": "info",
+    "maxRetryMs": 2000,
+    "retryIntervalMs": 50
   },
   "mvp-dev": {
     "source": 5174,

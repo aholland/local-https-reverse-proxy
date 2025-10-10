@@ -91,7 +91,7 @@ Configuration supports both single proxy and multi-proxy setups:
 
 **Retry configuration** (src/main.ts:39-40):
 - `maxRetryMs` (default: 1000): Maximum time in milliseconds to retry failed connections
-- `retryInterval` (default: 50): Time in milliseconds between retry attempts
+- `retryIntervalMs` (default: 50): Time in milliseconds between retry attempts
 - Retries only occur for ECONNREFUSED errors (target server not yet started)
 - With defaults: ~20 retry attempts over 1 second to catch servers during startup
 - Much faster than previous implementation which took ~10 seconds

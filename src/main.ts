@@ -35,7 +35,7 @@ async function checkTargetAvailable(
     hostname: string,
     port: number,
     maxRetryMs: number,
-    retryInterval: number,
+    retryIntervalMs: number,
     proxyName: string
 ): Promise<boolean> {
     const startTime = Date.now();
@@ -94,17 +94,27 @@ async function checkTargetAvailable(
                 return false;
             }
 
-            logger.debug({
-                proxy: proxyName,
-                target: `http://${hostname}:${port}`,
-                retry: retryCount,
-                delay: retryInterval,
-                elapsed,
-                error: err.code || 'UNKNOWN'
-            }, 'Target not ready, retrying...');
+            // Log first retry at info level to indicate retry process started
+            if (retryCount === 1) {
+                logger.info({
+                    proxy: proxyName,
+                    target: `http://${hostname}:${port}`,
+                    error: err.code || 'UNKNOWN',
+                    maxRetryMs
+                }, 'Target not available, starting retry attempts');
+            } else {
+                logger.debug({
+                    proxy: proxyName,
+                    target: `http://${hostname}:${port}`,
+                    retry: retryCount,
+                    delay: retryIntervalMs,
+                    elapsed,
+                    error: err.code || 'UNKNOWN'
+                }, 'Target not ready, retrying...');
+            }
 
             // Wait before next retry
-            await new Promise(resolve => setTimeout(resolve, retryInterval));
+            await new Promise(resolve => setTimeout(resolve, retryIntervalMs));
         }
     }
 
@@ -132,7 +142,7 @@ for (const name of Object.keys(config)) {
     const target: number = (typeof proxyConfig != 'object') ? proxyConfig : get('target', false, false);
     const source: number = get('source', false, true) ?? target + 1000;
     const maxRetryMs: number = get('maxRetryMs', true, true) ?? 1000;
-    const retryInterval: number = get('retryInterval', true, true) ?? 50;
+    const retryIntervalMs: number = get('retryIntervalMs', true, true) ?? 50;
 
     // Create proxy instance (not a server)
     const proxy = httpProxy.createProxyServer({
@@ -199,19 +209,21 @@ for (const name of Object.keys(config)) {
         async (req: any, res: any) => {
             // Add error handlers to prevent uncaught exceptions on socket errors
             req.on('error', (err: any) => {
-                logger.debug({
+                logger.warn({
                     proxy: name,
                     error: err.code,
-                    message: err.message
-                }, 'Request socket error');
+                    message: err.message,
+                    method: req.method,
+                    url: req.url
+                }, 'Request socket error (connection interrupted)');
             });
 
             res.on('error', (err: any) => {
-                logger.debug({
+                logger.warn({
                     proxy: name,
                     error: err.code,
                     message: err.message
-                }, 'Response socket error');
+                }, 'Response socket error (connection interrupted)');
             });
 
             // Check if target is available before proxying
@@ -219,7 +231,7 @@ for (const name of Object.keys(config)) {
                 hostname,
                 target,
                 maxRetryMs,
-                retryInterval,
+                retryIntervalMs,
                 name
             );
 
@@ -246,22 +258,28 @@ for (const name of Object.keys(config)) {
     server.on('upgrade', async (req: any, socket: any, head: any) => {
         // Add error handler to prevent uncaught exceptions on socket errors
         socket.on('error', (err: any) => {
-            logger.debug({
+            logger.warn({
                 proxy: name,
                 error: err.code,
-                message: err.message
-            }, 'WebSocket socket error');
+                message: err.message,
+                url: req.url
+            }, 'WebSocket socket error (connection interrupted)');
         });
 
         const targetAvailable = await checkTargetAvailable(
             hostname,
             target,
             maxRetryMs,
-            retryInterval,
+            retryIntervalMs,
             name
         );
 
         if (!targetAvailable) {
+            logger.warn({
+                proxy: name,
+                url: req.url,
+                target: `http://${hostname}:${target}`
+            }, 'Returning 502 - target server unavailable for WebSocket upgrade');
             socket.end('HTTP/1.1 502 Bad Gateway\r\n\r\n');
             return;
         }

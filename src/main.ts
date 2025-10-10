@@ -225,6 +225,9 @@ for (const name of Object.keys(config)) {
         if (acao) {
             proxyRes.headers["access-control-allow-origin"] = acao.replace(/^http:/, 'https:');
         }
+
+        // Visual feedback: green dot for successful HTTP response
+        process.stdout.write('\x1b[32m·\x1b[0m');
     });
 
     // Create HTTPS server that checks target availability before proxying
@@ -298,6 +301,15 @@ for (const name of Object.keys(config)) {
             const wsProtocol = req.headers['sec-websocket-protocol'] || '';
             const isDevTooling = wsProtocol.includes('vite-ping');
 
+            // Debug: log WebSocket protocol to see what we're getting
+            if (wsProtocol) {
+                logger.debug({
+                    proxy: name,
+                    wsProtocol,
+                    isDevTooling
+                }, 'WebSocket upgrade - protocol detected');
+            }
+
             // Add error handler to prevent uncaught exceptions on socket errors
             socket.on('error', (err: any) => {
                 const level = isDevTooling ? 'debug' : 'warn';
@@ -312,6 +324,11 @@ for (const name of Object.keys(config)) {
             // Use shared health check - concurrent requests await same check
             const targetAvailable = await getOrCreateHealthCheck(isDevTooling);
 
+            // Visual feedback: yellow dot for vite-ping (all attempts), green for other WebSockets (success only)
+            if (isDevTooling) {
+                process.stdout.write('\x1b[33m·\x1b[0m');
+            }
+
             if (!targetAvailable) {
                 const level = isDevTooling ? 'debug' : 'warn';
                 logger[level]({
@@ -324,6 +341,11 @@ for (const name of Object.keys(config)) {
             }
 
             proxy.ws(req, socket, head);
+
+            // Green dot for successful non-vite WebSocket
+            if (!isDevTooling) {
+                process.stdout.write('\x1b[32m·\x1b[0m');
+            }
         } catch (err: any) {
             logger.error({
                 proxy: name,

@@ -26,10 +26,16 @@ const program = createCommand(name)
   .option('-k, --key <key>', 'path to SSL key', exists, resolve(__dirname, '..', 'resources', 'localhost-key.pem'))
   .option('-o, --config <config>', 'path to configuration file', (path) => require(absolutePath(path)));
 
+type TargetRoute = {
+  path: string;
+  port: number;
+};
+
 type Proxy = {
   hostname: string;
   source: number;
-  target: number;
+  target?: number;  // Single target (fallback) - optional now
+  targets?: TargetRoute[];  // Multiple targets with path routing
   cert: string;
   key: string;
   maxRetryMs?: number;
@@ -44,20 +50,26 @@ function isConfig(args: unknown): args is Config {
 }
 
 export function isProxy(input: unknown): input is Proxy {
-  return Boolean(
-    input &&
-      typeof input === 'object' &&
-      'hostname' in input &&
-      typeof input.hostname === 'string' &&
-      'source' in input &&
-      typeof input.source === 'number' &&
-      'target' in input &&
-      typeof input.target === 'number' &&
-      'cert' in input &&
-      typeof input.cert === 'string' &&
-      'key' in input &&
-      typeof input.key === 'string'
-  );
+  if (
+    !input ||
+    typeof input !== 'object' ||
+    !('hostname' in input) ||
+    typeof input.hostname !== 'string' ||
+    !('source' in input) ||
+    typeof input.source !== 'number' ||
+    !('cert' in input) ||
+    typeof input.cert !== 'string' ||
+    !('key' in input) ||
+    typeof input.key !== 'string'
+  ) {
+    return false;
+  }
+
+  // Must have either target or targets
+  const hasTarget = 'target' in input && typeof input.target === 'number';
+  const hasTargets = 'targets' in input && Array.isArray(input.targets);
+
+  return hasTarget || hasTargets;
 }
 
 export function parse(args?: string[]): Proxy | Record<string, Proxy> {

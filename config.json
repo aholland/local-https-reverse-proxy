@@ -7,12 +7,11 @@
     "maxRetryMs": 2000,
     "retryIntervalMs": 50
   },
-  "mvp-dev": {
+  "multi-app": {
     "source": 5174,
-    "target": 5173
-  },
-  "mvp-preview": {
-    "source": 4174,
-    "target": 4173
+    "target": 5173,
+    "targets": [
+      { "path": "/bidone", "port": 6173 }
+    ]
   }
 }

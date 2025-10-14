@@ -141,93 +141,132 @@ for (const name of Object.keys(config)) {
     const key: string = get('key', true, false);
     const cert: string = get('cert', true, false);
     const hostname: string = get('hostname', true, false);
-    const target: number = (typeof proxyConfig != 'object') ? proxyConfig : get('target', false, false);
-    const source: number = get('source', false, true) ?? target + 1000;
     const maxRetryMs: number = get('maxRetryMs', true, true) ?? 1000;
     const retryIntervalMs: number = get('retryIntervalMs', true, true) ?? 50;
 
-    // Shared health check promise - concurrent requests await the same check
-    let activeHealthCheck: Promise<boolean> | null = null;
+    // Parse target(s) configuration
+    const singleTarget = get('target', false, true);
+    const multiTargets = get('targets', false, true);
 
-    /**
-     * Get or create a shared health check promise.
-     * Concurrent requests will await the same health check instead of each doing their own.
-     */
-    const getOrCreateHealthCheck = (isDevTooling: boolean = false): Promise<boolean> => {
-        if (!activeHealthCheck) {
-            // No active check - start a new one
-            activeHealthCheck = checkTargetAvailable(
-                hostname,
-                target,
-                maxRetryMs,
-                retryIntervalMs,
-                name,
-                isDevTooling
-            ).finally(() => {
-                // Clear the shared promise when done so next request creates a new one
-                activeHealthCheck = null;
-            });
-        }
-        return activeHealthCheck;
-    };
+    // Build routes array from both single target and multi-targets
+    const routeConfigs: Array<{ path: string; port: number }> = [];
 
-    // Create proxy instance (not a server)
-    const proxy = httpProxy.createProxyServer({
-        xfwd: true,
-        ws: true,
-        target: {
-            host: hostname,
-            port: target
-        }
+    if (multiTargets && Array.isArray(multiTargets)) {
+        routeConfigs.push(...multiTargets);
+    }
+
+    if (singleTarget) {
+        // Single target becomes the fallback route
+        routeConfigs.push({ path: '/', port: singleTarget });
+    }
+
+    if (routeConfigs.length === 0) {
+        throw Error(`No target or targets provided for config ${name} in the config file.`);
+    }
+
+    // Sort routes by path specificity (longest/most specific first)
+    routeConfigs.sort((a, b) => b.path.length - a.path.length);
+
+    // Determine source port (use first target + 1000 if not specified)
+    const source: number = get('source', false, true) ?? routeConfigs[0].port + 1000;
+
+    // Create route objects with separate proxy instances and health check promises
+    const routes = routeConfigs.map(routeConfig => {
+        // Each route gets its own health check promise (in closure)
+        let activeHealthCheck: Promise<boolean> | null = null;
+
+        /**
+         * Get or create a shared health check promise for this specific route.
+         * Concurrent requests to the same route await the same health check.
+         */
+        const getOrCreateHealthCheck = (isDevTooling: boolean = false): Promise<boolean> => {
+            if (!activeHealthCheck) {
+                // No active check - start a new one
+                activeHealthCheck = checkTargetAvailable(
+                    hostname,
+                    routeConfig.port,
+                    maxRetryMs,
+                    retryIntervalMs,
+                    name,
+                    isDevTooling
+                ).finally(() => {
+                    // Clear the shared promise when done so next request creates a new one
+                    activeHealthCheck = null;
+                });
+            }
+            return activeHealthCheck;
+        };
+
+        // Create proxy instance for this route
+        const proxy = httpProxy.createProxyServer({
+            xfwd: true,
+            ws: true,
+            target: {
+                host: hostname,
+                port: routeConfig.port
+            }
+        });
+
+        return {
+            path: routeConfig.path,
+            port: routeConfig.port,
+            proxy,
+            getOrCreateHealthCheck
+        };
     });
 
-    // Handle proxy errors (for errors other than connection refused)
-    proxy.on('error', (e: any, req: any, res: any) => {
-        logger.error({
-            proxy: name,
-            error: e.code,
-            message: e.message
-        }, 'Proxy error occurred');
+    // Set up event handlers for each route's proxy instance
+    routes.forEach(route => {
+        // Handle proxy errors (for errors other than connection refused)
+        route.proxy.on('error', (e: any, req: any, res: any) => {
+            logger.error({
+                proxy: name,
+                route: route.path,
+                error: e.code,
+                message: e.message
+            }, 'Proxy error occurred');
 
-        // Send error response if possible
-        if (res && typeof res.writeHead === 'function' && !res.headersSent) {
-            res.writeHead(502, { 'Content-Type': 'text/plain' });
-            res.end('Bad Gateway: Proxy error');
-        }
-    });
+            // Send error response if possible
+            if (res && typeof res.writeHead === 'function' && !res.headersSent) {
+                res.writeHead(502, { 'Content-Type': 'text/plain' });
+                res.end('Bad Gateway: Proxy error');
+            }
+        });
 
-    // Modify headers before forwarding
-    proxy.on('proxyReq', (proxyReq, req) => {
-        logger.debug({ proxy: name, method: req.method, url: req.url }, 'Forwarding request');
-        const origin = proxyReq.getHeader('origin');
-        if (origin) {
-            proxyReq.setHeader('origin', origin.toString().replace(/^https:/, 'http:'));
-        }
-        const ref = proxyReq.getHeader('referer');
-        if (ref) {
-            proxyReq.setHeader('referer', ref.toString().replace(/^https:/, 'http:'));
-        }
-    });
+        // Modify headers before forwarding
+        route.proxy.on('proxyReq', (proxyReq, req) => {
+            logger.debug({ proxy: name, route: route.path, method: req.method, url: req.url }, 'Forwarding request');
+            const origin = proxyReq.getHeader('origin');
+            if (origin) {
+                proxyReq.setHeader('origin', origin.toString().replace(/^https:/, 'http:'));
+            }
+            const ref = proxyReq.getHeader('referer');
+            if (ref) {
+                proxyReq.setHeader('referer', ref.toString().replace(/^https:/, 'http:'));
+            }
+        });
 
-    // Modify response headers
-    proxy.on('proxyRes', (proxyRes, req) => {
-        logger.debug({
-            proxy: name,
-            status: proxyRes.statusCode,
-            method: req.method,
-            url: req.url
-        }, 'Response received');
-        const loc = proxyRes.headers.location;
-        if (loc) {
-            proxyRes.headers.location = loc.replace(/^http:/, 'https:');
-        }
-        const acao = proxyRes.headers["access-control-allow-origin"];
-        if (acao) {
-            proxyRes.headers["access-control-allow-origin"] = acao.replace(/^http:/, 'https:');
-        }
+        // Modify response headers
+        route.proxy.on('proxyRes', (proxyRes, req) => {
+            logger.debug({
+                proxy: name,
+                route: route.path,
+                status: proxyRes.statusCode,
+                method: req.method,
+                url: req.url
+            }, 'Response received');
+            const loc = proxyRes.headers.location;
+            if (loc) {
+                proxyRes.headers.location = loc.replace(/^http:/, 'https:');
+            }
+            const acao = proxyRes.headers["access-control-allow-origin"];
+            if (acao) {
+                proxyRes.headers["access-control-allow-origin"] = acao.replace(/^http:/, 'https:');
+            }
 
-        // Visual feedback: green dot for successful HTTP response
-        process.stdout.write('\x1b[32m·\x1b[0m');
+            // Visual feedback: green dot for successful HTTP response
+            process.stdout.write('\x1b[32m·\x1b[0m');
+        });
     });
 
     // Create HTTPS server that checks target availability before proxying
@@ -257,17 +296,43 @@ for (const name of Object.keys(config)) {
                     }, 'Response socket error (connection interrupted)');
                 });
 
+                // Match request path to route (routes are sorted by specificity)
+                const matchedRoute = routes.find(route => {
+                    // Special case: '/' matches everything (fallback)
+                    if (route.path === '/') {
+                        return true;
+                    }
+                    // Match if URL starts with path and is followed by / or ? or end of string
+                    return req.url === route.path ||
+                           req.url.startsWith(route.path + '/') ||
+                           req.url.startsWith(route.path + '?');
+                });
+
+                if (!matchedRoute) {
+                    // No route matched (shouldn't happen if '/' fallback exists)
+                    logger.error({
+                        proxy: name,
+                        method: req.method,
+                        url: req.url
+                    }, 'No route matched for request');
+
+                    res.writeHead(404, { 'Content-Type': 'text/plain' });
+                    res.end('Not Found: No matching route');
+                    return;
+                }
+
                 // Check if target is available before proxying
-                // Use shared health check - concurrent requests await same check
-                const targetAvailable = await getOrCreateHealthCheck();
+                // Use shared health check - concurrent requests to same route await same check
+                const targetAvailable = await matchedRoute.getOrCreateHealthCheck();
 
                 if (!targetAvailable) {
                     // Target is not available after retries
                     logger.warn({
                         proxy: name,
+                        route: matchedRoute.path,
                         method: req.method,
                         url: req.url,
-                        target: `http://${hostname}:${target}`
+                        target: `http://${hostname}:${matchedRoute.port}`
                     }, 'Returning 502 - target server unavailable');
 
                     res.writeHead(502, { 'Content-Type': 'text/plain' });
@@ -276,7 +341,7 @@ for (const name of Object.keys(config)) {
                 }
 
                 // Target is available, proxy the request (only called ONCE)
-                proxy.web(req, res);
+                matchedRoute.proxy.web(req, res);
             } catch (err: any) {
                 logger.error({
                     proxy: name,
@@ -321,8 +386,31 @@ for (const name of Object.keys(config)) {
                 }, 'WebSocket socket error (connection interrupted)');
             });
 
-            // Use shared health check - concurrent requests await same check
-            const targetAvailable = await getOrCreateHealthCheck(isDevTooling);
+            // Match request path to route (routes are sorted by specificity)
+            const matchedRoute = routes.find(route => {
+                // Special case: '/' matches everything (fallback)
+                if (route.path === '/') {
+                    return true;
+                }
+                // Match if URL starts with path and is followed by / or ? or end of string
+                return req.url === route.path ||
+                       req.url.startsWith(route.path + '/') ||
+                       req.url.startsWith(route.path + '?');
+            });
+
+            if (!matchedRoute) {
+                // No route matched (shouldn't happen if '/' fallback exists)
+                logger.error({
+                    proxy: name,
+                    url: req.url
+                }, 'No route matched for WebSocket upgrade');
+
+                socket.end('HTTP/1.1 404 Not Found\r\n\r\n');
+                return;
+            }
+
+            // Use shared health check - concurrent requests to same route await same check
+            const targetAvailable = await matchedRoute.getOrCreateHealthCheck(isDevTooling);
 
             // Visual feedback: yellow dot for vite-ping (all attempts), green for other WebSockets (success only)
             if (isDevTooling) {
@@ -333,14 +421,15 @@ for (const name of Object.keys(config)) {
                 const level = isDevTooling ? 'debug' : 'warn';
                 logger[level]({
                     proxy: name,
+                    route: matchedRoute.path,
                     url: req.url,
-                    target: `http://${hostname}:${target}`
+                    target: `http://${hostname}:${matchedRoute.port}`
                 }, 'Returning 502 - target server unavailable for WebSocket upgrade');
                 socket.end('HTTP/1.1 502 Bad Gateway\r\n\r\n');
                 return;
             }
 
-            proxy.ws(req, socket, head);
+            matchedRoute.proxy.ws(req, socket, head);
 
             // Green dot for successful non-vite WebSocket
             if (!isDevTooling) {
@@ -359,15 +448,24 @@ for (const name of Object.keys(config)) {
 
     server.listen(source);
 
-    logger.info({
-        proxy: name,
-        sourceUrl: `https://${hostname}:${source}`,
-        targetUrl: `http://${hostname}:${target}`
-    }, 'Proxy started');
+    // Log proxy startup with route information
+    if (routes.length === 1) {
+        logger.info({
+            proxy: name,
+            sourceUrl: `https://${hostname}:${source}`,
+            targetUrl: `http://${hostname}:${routes[0].port}`
+        }, 'Proxy started');
+    } else {
+        logger.info({
+            proxy: name,
+            sourceUrl: `https://${hostname}:${source}`,
+            routes: routes.map(r => ({ path: r.path, target: `http://${hostname}:${r.port}` }))
+        }, 'Proxy started with multiple routes');
+    }
 
     process.on('exit', () => {
         server.close();
-        proxy.close();
+        routes.forEach(route => route.proxy.close());
         logger.info({ proxy: name }, 'Proxy closed');
     });
 }

@@ -124,10 +124,15 @@ async function checkTargetAvailable(
 }
 
 for (const name of Object.keys(config)) {
-    if (name === 'defaults' || name === 'ignore') {
+    if (name === 'defaults') {
         continue;
     }
     const proxyConfig = config[name];
+    // Skip proxies with ignore: true property
+    if (proxyConfig && typeof proxyConfig === 'object' && proxyConfig['ignore'] === true) {
+        logger.info({ proxy: name }, 'Skipping ignored proxy');
+        continue;
+    }
     const get = (key: string, checkDefault: boolean, allowUndefined: boolean) => {
         const value = proxyConfig && typeof proxyConfig === 'object' && proxyConfig[key] ? proxyConfig[key] : checkDefault && defaults && defaults[key] ? defaults[key] : null;
         if (!allowUndefined && value == null) {

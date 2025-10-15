@@ -86,9 +86,16 @@ Share common configuration across multiple proxies:
   "Backend": {
     "source": 4001,
     "target": 4000
+  },
+  "Staging": {
+    "ignore": true,
+    "source": 5001,
+    "target": 5000
   }
 }
 ```
+
+Set `"ignore": true` on any proxy to temporarily disable it without removing the configuration.
 
 #### Path-Based Routing
 
@@ -135,6 +142,7 @@ This configuration:
 | `key` | string | required | Path to SSL private key |
 | `cert` | string | required | Path to SSL certificate |
 | `hostname` | string | required | Hostname to bind to |
+| `ignore` | boolean | `false` | Skip this proxy (useful for temporarily disabling proxies) |
 | `logLevel` | string | `'info'` | Log level: `'debug'`, `'info'`, `'warn'`, `'error'`, `'fatal'` |
 | `maxRetryMs` | number | `1000` | Max time (ms) to retry failed connections |
 | `retryIntervalMs` | number | `50` | Time (ms) between retry attempts |

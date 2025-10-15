@@ -149,15 +149,22 @@ for (const name of Object.keys(config)) {
     const multiTargets = get('targets', false, true);
 
     // Build routes array from both single target and multi-targets
-    const routeConfigs: Array<{ path: string; port: number }> = [];
+    const routeConfigs: Array<{ name: string; path: string; port: number }> = [];
 
-    if (multiTargets && Array.isArray(multiTargets)) {
-        routeConfigs.push(...multiTargets);
+    if (multiTargets && typeof multiTargets === 'object' && !Array.isArray(multiTargets)) {
+        // Named targets as object
+        for (const [targetName, targetConfig] of Object.entries(multiTargets as Record<string, { path: string; port: number }>)) {
+            routeConfigs.push({
+                name: targetName,
+                path: targetConfig.path,
+                port: targetConfig.port
+            });
+        }
     }
 
     if (singleTarget) {
         // Single target becomes the fallback route
-        routeConfigs.push({ path: '/', port: singleTarget });
+        routeConfigs.push({ name: 'default', path: '/', port: singleTarget });
     }
 
     if (routeConfigs.length === 0) {
@@ -208,6 +215,7 @@ for (const name of Object.keys(config)) {
         });
 
         return {
+            name: routeConfig.name,
             path: routeConfig.path,
             port: routeConfig.port,
             proxy,
@@ -221,6 +229,7 @@ for (const name of Object.keys(config)) {
         route.proxy.on('error', (e: any, req: any, res: any) => {
             logger.error({
                 proxy: name,
+                target: route.name,
                 route: route.path,
                 error: e.code,
                 message: e.message
@@ -235,7 +244,7 @@ for (const name of Object.keys(config)) {
 
         // Modify headers before forwarding
         route.proxy.on('proxyReq', (proxyReq, req) => {
-            logger.debug({ proxy: name, route: route.path, method: req.method, url: req.url }, 'Forwarding request');
+            logger.debug({ proxy: name, target: route.name, route: route.path, method: req.method, url: req.url }, 'Forwarding request');
             const origin = proxyReq.getHeader('origin');
             if (origin) {
                 proxyReq.setHeader('origin', origin.toString().replace(/^https:/, 'http:'));
@@ -250,6 +259,7 @@ for (const name of Object.keys(config)) {
         route.proxy.on('proxyRes', (proxyRes, req) => {
             logger.debug({
                 proxy: name,
+                target: route.name,
                 route: route.path,
                 status: proxyRes.statusCode,
                 method: req.method,
@@ -329,10 +339,11 @@ for (const name of Object.keys(config)) {
                     // Target is not available after retries
                     logger.warn({
                         proxy: name,
+                        target: matchedRoute.name,
                         route: matchedRoute.path,
                         method: req.method,
                         url: req.url,
-                        target: `http://${hostname}:${matchedRoute.port}`
+                        targetUrl: `http://${hostname}:${matchedRoute.port}`
                     }, 'Returning 502 - target server unavailable');
 
                     res.writeHead(502, { 'Content-Type': 'text/plain' });
@@ -421,9 +432,10 @@ for (const name of Object.keys(config)) {
                 const level = isDevTooling ? 'debug' : 'warn';
                 logger[level]({
                     proxy: name,
+                    target: matchedRoute.name,
                     route: matchedRoute.path,
                     url: req.url,
-                    target: `http://${hostname}:${matchedRoute.port}`
+                    targetUrl: `http://${hostname}:${matchedRoute.port}`
                 }, 'Returning 502 - target server unavailable for WebSocket upgrade');
                 socket.end('HTTP/1.1 502 Bad Gateway\r\n\r\n');
                 return;
@@ -453,13 +465,14 @@ for (const name of Object.keys(config)) {
         logger.info({
             proxy: name,
             sourceUrl: `https://${hostname}:${source}`,
+            target: routes[0].name,
             targetUrl: `http://${hostname}:${routes[0].port}`
         }, 'Proxy started');
     } else {
         logger.info({
             proxy: name,
             sourceUrl: `https://${hostname}:${source}`,
-            routes: routes.map(r => ({ path: r.path, target: `http://${hostname}:${r.port}` }))
+            routes: routes.map(r => ({ name: r.name, path: r.path, target: `http://${hostname}:${r.port}` }))
         }, 'Proxy started with multiple routes');
     }
 

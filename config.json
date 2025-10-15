@@ -10,8 +10,11 @@
   "multi-app": {
     "source": 5174,
     "target": 5173,
-    "targets": [
-      { "path": "/bidone", "port": 6173 }
-    ]
+    "targets": {
+      "bidone": {
+        "path": "/bidone",
+        "port": 6173
+      }
+    }
   }
 }

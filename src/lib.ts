@@ -35,7 +35,7 @@ type Proxy = {
   hostname: string;
   source: number;
   target?: number;  // Single target (fallback) - optional now
-  targets?: TargetRoute[];  // Multiple targets with path routing
+  targets?: Record<string, TargetRoute>;  // Named targets with path routing
   cert: string;
   key: string;
   maxRetryMs?: number;
@@ -67,7 +67,7 @@ export function isProxy(input: unknown): input is Proxy {
 
   // Must have either target or targets
   const hasTarget = 'target' in input && typeof input.target === 'number';
-  const hasTargets = 'targets' in input && Array.isArray(input.targets);
+  const hasTargets = 'targets' in input && typeof input.targets === 'object' && input.targets !== null && !Array.isArray(input.targets);
 
   return hasTarget || hasTargets;
 }

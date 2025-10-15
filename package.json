@@ -1,11 +1,14 @@
 {
-  "name": "local-ssl-proxy",
+  "name": "local-https-reverse-proxy",
   "version": "2.0.5",
   "author": "Cameron Hunter <hello@cameronhunter.co.uk>",
-  "description": "Simple SSL HTTP proxy using a self-signed certificate. Intended for local development only.",
+  "contributors": [
+    "Anthony Holland"
+  ],
+  "description": "HTTPS reverse proxy with SSL/TLS termination and path-based routing. Intended for local development only.",
   "repository": {
     "type": "git",
-    "url": "http://github.com/cameronhunter/local-ssl-proxy.git"
+    "url": "https://github.com/aholland/local-https-reverse-proxy.git"
   },
   "license": "MIT",
   "engines": {

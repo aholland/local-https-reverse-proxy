@@ -1,8 +1,8 @@
-# local-ssl-proxy
+# local-https-reverse-proxy
 
 [![License](https://img.shields.io/npm/l/local-ssl-proxy.svg)](https://github.com/cameronhunter/local-ssl-proxy/blob/master/LICENSE.md)
 
-Simple SSL HTTP proxy using a self-signed certificate. Intended for local development only.
+**HTTPS reverse proxy** with SSL/TLS termination and path-based routing. Uses self-signed certificates for local development.
 
 **This is an enhanced fork** of [cameronhunter/local-ssl-proxy](https://github.com/cameronhunter/local-ssl-proxy) with additional features for advanced development workflows.
 

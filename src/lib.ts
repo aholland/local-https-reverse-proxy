@@ -12,6 +12,16 @@ const exists = (path: string) => {
 const absolutePath = (path: string) => (isAbsolute(path) ? path : resolve(process.cwd(), path));
 const parseInteger = (value: string) => parseInt(value, 10);
 
+const getDefaultConfigPath = () => {
+  const localConfig = resolve(process.cwd(), 'config.local.json');
+  const defaultConfig = resolve(process.cwd(), 'config.json');
+
+  if (fs.existsSync(localConfig)) {
+    return localConfig;
+  }
+  return defaultConfig;
+};
+
 const program = createCommand(name)
   .version(version, '-v, --version', 'show version number')
   .option('-n, --hostname <hostname>', 'hostname for the server', 'localhost')
@@ -24,7 +34,7 @@ const program = createCommand(name)
     resolve(__dirname, '..', 'resources', 'localhost.pem')
   )
   .option('-k, --key <key>', 'path to SSL key', exists, resolve(__dirname, '..', 'resources', 'localhost-key.pem'))
-  .option('-o, --config <config>', 'path to configuration file', (path) => require(absolutePath(path)));
+  .option('-o, --config <config>', 'path to configuration file', (path) => require(absolutePath(path)), () => require(getDefaultConfigPath()));
 
 type TargetRoute = {
   path: string;

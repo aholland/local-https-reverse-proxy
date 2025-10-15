@@ -18,7 +18,7 @@
     "resources"
   ],
   "scripts": {
-    "start": "ts-node ./src/main.ts --config config.json",
+    "start": "ts-node ./src/main.ts",
     "prebuild": "pnpm clean",
     "build": "tsc && chmod +x ./build/main.js",
     "clean": "tsc --build --clean",

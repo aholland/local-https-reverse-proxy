@@ -3,3 +3,4 @@
 !/.yarn/plugins/
 /build/
 /node_modules/
+config.local.json

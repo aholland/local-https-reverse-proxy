@@ -130,14 +130,16 @@ This configuration:
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `source` | number | `target + 1000` | HTTPS port to listen on |
-| `target` | number | required | HTTP port to forward to (for simple proxy) |
-| `targets` | object | optional | Named targets for path-based routing |
+| `target` | number | optional* | HTTP port to forward to (simple proxy / fallback route) |
+| `targets` | object | optional* | Named targets for path-based routing |
 | `key` | string | required | Path to SSL private key |
 | `cert` | string | required | Path to SSL certificate |
 | `hostname` | string | required | Hostname to bind to |
 | `logLevel` | string | `'info'` | Log level: `'debug'`, `'info'`, `'warn'`, `'error'`, `'fatal'` |
 | `maxRetryMs` | number | `1000` | Max time (ms) to retry failed connections |
 | `retryIntervalMs` | number | `50` | Time (ms) between retry attempts |
+
+**\* At least one of `target` or `targets` must be specified. When both are present, `target` serves as the fallback route for unmatched paths.**
 
 #### Target Configuration
 

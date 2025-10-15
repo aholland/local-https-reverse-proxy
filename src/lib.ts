@@ -34,7 +34,7 @@ const program = createCommand(name)
     resolve(__dirname, '..', 'resources', 'localhost.pem')
   )
   .option('-k, --key <key>', 'path to SSL key', exists, resolve(__dirname, '..', 'resources', 'localhost-key.pem'))
-  .option('-o, --config <config>', 'path to configuration file', (path) => require(absolutePath(path)), () => require(getDefaultConfigPath()));
+  .option('-o, --config <config>', 'path to configuration file', (path) => require(absolutePath(path)));
 
 type TargetRoute = {
   path: string;
@@ -84,8 +84,17 @@ export function isProxy(input: unknown): input is Proxy {
 }
 
 export function parse(args?: string[]): Proxy | Record<string, Proxy> {
-  const proxy: ParsedArguments =
+  const opts =
     args === undefined ? program.parse().opts() : program.parse(args, { from: 'user' }).opts();
+
+  // If no config was provided via CLI, load the default config file
+  let proxy: ParsedArguments;
+  if (!opts.config) {
+    const configPath = getDefaultConfigPath();
+    proxy = { config: require(configPath) };
+  } else {
+    proxy = opts as ParsedArguments;
+  }
 
   return isConfig(proxy) ? proxy.config : proxy;
 }

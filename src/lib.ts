@@ -29,6 +29,7 @@ const program = createCommand(name)
 type TargetRoute = {
   path: string;
   port: number;
+  aliases?: string[];
 };
 
 type Proxy = {

@@ -149,15 +149,25 @@ for (const name of Object.keys(config)) {
     const multiTargets = get('targets', false, true);
 
     // Build routes array from both single target and multi-targets
-    const routeConfigs: Array<{ name: string; path: string; port: number }> = [];
+    const routeConfigs: Array<{ name: string; path: string; port: number; aliases?: string[] }> = [];
 
     if (multiTargets && typeof multiTargets === 'object' && !Array.isArray(multiTargets)) {
         // Named targets as object
-        for (const [targetName, targetConfig] of Object.entries(multiTargets as Record<string, { path: string; port: number }>)) {
+        for (const [targetName, targetConfig] of Object.entries(multiTargets as Record<string, { path: string; port: number; aliases?: string[] }>)) {
+            // Validate aliases don't have trailing slashes
+            if (targetConfig.aliases) {
+                for (const alias of targetConfig.aliases) {
+                    if (alias.endsWith('/') && alias !== '/') {
+                        throw Error(`Alias "${alias}" in target "${targetName}" has a trailing slash. Aliases must not end with a slash (e.g., use "/bid" not "/bid/").`);
+                    }
+                }
+            }
+
             routeConfigs.push({
                 name: targetName,
                 path: targetConfig.path,
-                port: targetConfig.port
+                port: targetConfig.port,
+                aliases: targetConfig.aliases
             });
         }
     }
@@ -218,6 +228,7 @@ for (const name of Object.keys(config)) {
             name: routeConfig.name,
             path: routeConfig.path,
             port: routeConfig.port,
+            aliases: routeConfig.aliases || [],
             proxy,
             getOrCreateHealthCheck
         };
@@ -305,6 +316,41 @@ for (const name of Object.keys(config)) {
                         message: err.message
                     }, 'Response socket error (connection interrupted)');
                 });
+
+                // Check if URL matches any alias - redirect if it does
+                for (const route of routes) {
+                    for (const alias of route.aliases) {
+                        // Check if URL matches this alias using same logic as path matching
+                        const matchesAlias = req.url === alias ||
+                                           req.url.startsWith(alias + '/') ||
+                                           req.url.startsWith(alias + '?');
+
+                        if (matchesAlias) {
+                            // Construct redirect URL by replacing alias with main path
+                            // Strip trailing slash from main path to avoid double slashes
+                            const mainPath = route.path.endsWith('/') && route.path !== '/'
+                                ? route.path.slice(0, -1)
+                                : route.path;
+                            const redirectUrl = req.url.replace(alias, mainPath);
+
+                            logger.debug({
+                                proxy: name,
+                                target: route.name,
+                                alias,
+                                mainPath: route.path,
+                                originalUrl: req.url,
+                                redirectUrl
+                            }, 'Redirecting alias to main path');
+
+                            res.writeHead(301, {
+                                'Location': redirectUrl,
+                                'Content-Type': 'text/plain'
+                            });
+                            res.end(`Moved Permanently: ${alias} -> ${route.path}`);
+                            return;
+                        }
+                    }
+                }
 
                 // Match request path to route (routes are sorted by specificity)
                 const matchedRoute = routes.find(route => {
@@ -462,17 +508,27 @@ for (const name of Object.keys(config)) {
 
     // Log proxy startup with route information
     if (routes.length === 1) {
-        logger.info({
+        const routeInfo: any = {
             proxy: name,
             sourceUrl: `https://${hostname}:${source}`,
             target: routes[0].name,
             targetUrl: `http://${hostname}:${routes[0].port}`
-        }, 'Proxy started');
+        };
+        if (routes[0].aliases.length > 0) {
+            routeInfo.aliases = routes[0].aliases;
+        }
+        logger.info(routeInfo, 'Proxy started');
     } else {
         logger.info({
             proxy: name,
             sourceUrl: `https://${hostname}:${source}`,
-            routes: routes.map(r => ({ name: r.name, path: r.path, target: `http://${hostname}:${r.port}` }))
+            routes: routes.map(r => {
+                const route: any = { name: r.name, path: r.path, target: `http://${hostname}:${r.port}` };
+                if (r.aliases.length > 0) {
+                    route.aliases = r.aliases;
+                }
+                return route;
+            })
         }, 'Proxy started with multiple routes');
     }
 

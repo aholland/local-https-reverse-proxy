@@ -13,7 +13,8 @@
     "targets": {
       "bidone": {
         "path": "/bidone",
-        "port": 6173
+        "port": 6173,
+        "aliases": ["/bid", "/b"]
       }
     }
   }

@@ -12,7 +12,7 @@
   },
   "license": "MIT",
   "engines": {
-    "node": "24.x"
+    "node": "25.x"
   },
   "bin": "build/main.js",
   "preferGlobal": true,
@@ -37,9 +37,9 @@
     "ts-node": "10.9.2"
   },
   "devDependencies": {
-    "@types/node": "24.9.1",
+    "@types/node": "24.9.2",
     "typescript": "5.9.3",
-    "vitest": "4.0.3"
+    "vitest": "4.0.5"
   },
-  "packageManager": "pnpm@10.19.0"
+  "packageManager": "pnpm@10.20.0"
 }
